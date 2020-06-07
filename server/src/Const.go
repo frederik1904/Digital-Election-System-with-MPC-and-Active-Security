@@ -10,14 +10,12 @@ const (
 	FloodVerificationSecret   ApiEndpoints = "/FloodVerificationSecret"
 	GetAllParticipants        ApiEndpoints = "/GetAllParticipants"
 	GetPublicKey              ApiEndpoints = "/GetPublicKey"
-	ReceiveVerificationSecret ApiEndpoints = "NetworkHTTPS.ReciveVerificationSecret"
+	ReceiveVerificationSecret ApiEndpoints = "/ReceiveVerificationSecret"
 	SendShare                 ApiEndpoints = "/SendShare"
 	GetPublicKeyAsString      ApiEndpoints = "/GetPublicKeyAsString"
 	GetPrime                  ApiEndpoints = "/GetPrime"
 	ClientJoinNetwork         ApiEndpoints = "/ClientJoinNetwork"
 	GetCurrentShare           ApiEndpoints = "/GetCurrentShare"
-	ReceiveServerShare       ApiEndpoints = "NetworkHTTPS.ReceiveServerShare"
-	ChallengeVote            ApiEndpoints = "NetworkHTTPS.ChallengeVote"
 )
 
 type RPCEndpoints string
@@ -30,11 +28,11 @@ const (
 	Handshake                         RPCEndpoints = "NetworkHTTPS.Handshake"
 )
 
-type RequestType string
+type RequestType int
 
 const (
-	GET  RequestType = "GET"
-	POST RequestType = "POST"
+	GET  RequestType = 0
+	POST RequestType = 1
 )
 
 type ShareType int
@@ -46,7 +44,7 @@ const (
 )
 
 const (
-	ProtocolType = "First Active"
+	ProtocolType = "Second Passive"
 	MasterIp   = "127.0.0.1"
 	MasterPort = "8080"
 	Prime = "10067"

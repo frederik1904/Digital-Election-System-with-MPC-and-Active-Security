@@ -7,7 +7,7 @@ import (
 
 // State ...
 type State struct {
-	Share   Share
+	Secret  Share
 	Network NetworkStates
 }
 
@@ -21,11 +21,11 @@ const (
 func NewState(currentSecret *Share, point int64) *State {
 	if currentSecret == nil {
 		return &State{
-			Share:   NewSecret(point, big.NewInt(0), uuid.UUID{}),
+			Secret:  NewSecret(point, big.NewInt(0), uuid.UUID{}),
 			Network: 0,
 		}
 	}
-	return &State{Share: *currentSecret, Network: 0}
+	return &State{Secret: *currentSecret, Network: 0}
 }
 
 // MPCController øv bøv
@@ -43,7 +43,6 @@ type MPCController interface {
 	DecodeSecret(i int) Share
 	Distribute(secret Share)
 	VerifySecret(verificationSecrets []Share) bool // Verify via x(1-x) that the secret is valid (is in {0,1} and other stuff for active)
-	CreateVerificationSecret(secret *Share) Share
 
 	// Arithmetics Operations on the currentSecret, found in State.
 	Add(s Share)

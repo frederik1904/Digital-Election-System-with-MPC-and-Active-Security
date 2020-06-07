@@ -3,9 +3,6 @@ package Client
 import (
 	f "../server/framework"
 	n "../server/src"
-	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
 	cr "crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -13,7 +10,6 @@ import (
 	"fmt"
 	"github.com/go-resty/resty"
 	"github.com/google/uuid"
-	"io"
 	"math/big"
 	"math/rand"
 	"strconv"
@@ -36,8 +32,6 @@ type client struct {
 	prime      *big.Int
 	logger     n.Logger
 	sessionId  uuid.UUID
-	lock       sync.RWMutex
-	idsSent map[uuid.UUID]bool
 }
 
 type IpStruct struct {
@@ -53,11 +47,6 @@ type ClientInfo struct {
 	SessionId uuid.UUID
 }
 
-type intermediary struct {
-	enc n.EncryptedShareListMarshalFriendly
-	val int
-}
-
 func MakeClient(Logger n.Logger) {
 	var connectIp string
 	if n.DEBUG == 0 {
@@ -71,7 +60,7 @@ func MakeClient(Logger n.Logger) {
 		voteValue:  0,
 		logger:     Logger,
 	}
-	c.idsSent = make(map[uuid.UUID]bool)
+
 	split := strings.Split(connectIp, ":")
 	fmt.Println(split)
 	c.ipList = []IpStruct{{
@@ -109,15 +98,10 @@ func (c *client) getCurrentVote() {
 	secret := []f.Share{}
 	for _, v := range c.ipList {
 		resp, err := c.createClient(v).R().Get(string(n.GetCurrentShare))
-		for err != nil {
-			time.Sleep(100)
-			resp, err = c.createClient(v).R().Get(string(n.GetCurrentShare))
-		}
 		n.DebugRestCall(resp, err)
 
 		var s f.Share
 		json.Unmarshal(resp.Body(), &s)
-
 		secret = append(secret, s)
 	}
 
@@ -182,7 +166,7 @@ func (c *client) createClient(ip IpStruct) *resty.Client {
 	return client
 }
 
-func (c *client) _vote(value int) {
+func (c *client) vote(value int) {
 	secrets := c.ss.SecretGen(big.NewInt(int64(value)))
 	var encShares []n.EncryptedShare
 	
@@ -200,11 +184,11 @@ func (c *client) _vote(value int) {
 		Id:        secrets[0].Id,
 		EncShares: encShares,
 	}
-	go c.logger.LOG(c.sessionId.String(), secrets[0].Id.String(), "VOTE", -1, time.Now())
+	go c.logger.LOG(c.sessionId.String(), secrets[0].Id.String(), "VOTE", time.Now(), -1)
 	for _, v := range c.ipList {
 		resp, err := c.createClient(v).R().SetBody(shareToSend).Post(string(n.SendShare))
 		for err != nil {
-			time.Sleep(1000)
+			time.Sleep(100)
 			resp, err = c.createClient(v).R().SetBody(shareToSend).Post(string(n.SendShare))
 		}
 		n.DebugRestCall(resp, err)
@@ -216,104 +200,6 @@ func (c *client) _vote(value int) {
 	fmt.Printf("Vote has been sent to all servers with value: %d, current vote tally: %d with %d votes\n",
 		value, c.voteValue, c.voteAmount)
 	fmt.Printf("Sent the shares: \n%v\n", secrets)
-}
-
-func (c *client) vote(value int, shareToSend n.EncryptedShareListMarshalFriendly) {
-	fmt.Println(c.sessionId.String(), shareToSend.Id, "VOTE", -1, time.Now())
-	c.logger.LOG(c.sessionId.String(), shareToSend.Id.String(), "VOTE", -1, time.Now())
-	for _, v := range c.ipList {
-		// When using RPC someone can hijack our ID, due to plain text. Reason for leaving create client.
-		_, err := c.createClient(v).R().SetBody(shareToSend).Post(string(n.SendShare))
-		for err != nil {
-			time.Sleep(1000)
-			_, err = c.createClient(v).R().SetBody(shareToSend).Post(string(n.SendShare))
-		}
-		//c.createRPCClient(v).Go("NetworkHTTPS.ReceiveServerShare", shareToSend, nil, nil)
-
-	}
-
-	n.Debug(0, "Vote has been sent to all servers with value: %d, current vote tally: %d with %d votes\n",
-		value, c.voteValue, c.voteAmount)
-}
-
-func (c *client) generateShares(value int) (n.EncryptedShareListMarshalFriendly, []f.Share) {
-	shares:= c.ss.SecretGen(big.NewInt(int64(value)))
-
-	c.lock.Lock()
-	for c.idsSent[shares[0].Id] {
-		shares = c.ss.SecretGen(big.NewInt(int64(value)))
-	}
-	c.idsSent[shares[0].Id] = true
-	c.lock.Unlock()
-
-	var encShares []n.EncryptedShare
-
-	for i, v := range shares {
-		m, _ := json.Marshal(v.TransformForNetwork())
-		key := GenerateRandomKey(32)
-		ci, err := aes.NewCipher(key)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		gcm, err := cipher.NewGCM(ci)
-		nonce := make([]byte, gcm.NonceSize())
-		if _, err := io.ReadFull(cr.Reader, nonce); err != nil {
-			panic(err.Error())
-		}
-
-		CipherText := append(nonce, gcm.Seal(nil, nonce, m, nil)...)
-
-		hash := crypto.SHA1.New()
-		enc, err := rsa.EncryptOAEP(hash, cr.Reader, &c.ipList[i].PublicKey, key, nil)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		encShares = append(encShares, n.EncryptedShare{
-			Point:             i,
-			CipherText:        CipherText,
-			EncryptedShareKey: enc,
-		})
-	}
-	c.incVoteAmount(value)
-
-	return n.EncryptedShareList{
-		Id:        shares[0].Id,
-		EncShares: encShares,
-	}.TransformToMarshalFriendly(), shares
-}
-
-func GenerateRandomKey(bytesize int) []byte {
-	checkBytesize(bytesize)
-	key := make([]byte, bytesize)
-	rand.Read(key)
-	return key
-}
-
-func checkBytesize(bytesize int) {
-	availsizes := []int{16, 24, 32, 64, 128, 256, 512}
-	for _, size := range availsizes {
-		if bytesize == size {
-			return
-		}
-	}
-	panic("Please provide keysize of either 16, 24, 32, or 64 bytes")
-}
-
-func (c *client) incVoteAmount(value int, negative ...bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	if value == 0 || value == 1 {
-		if len(negative) == 0 {
-			c.voteAmount++
-			c.voteValue += value
-		} else {
-			c.voteValue -= value
-			c.voteAmount--
-		}
-
-	}
 }
 
 func (c *client) printHelp() {
@@ -345,8 +231,7 @@ func (c *client) startRunningLoop() {
 				fmt.Println("Could not convert value to an integer.")
 				continue
 			}
-			enc, _ := c.generateShares(val)
-			c.vote(val, enc)
+			c.vote(val)
 		case "vote_value", "vv":
 			c.getCurrentVote()
 		case "ip":
@@ -361,26 +246,9 @@ func (c *client) startRunningLoop() {
 				fmt.Println("Could not convert value to an integer.")
 				continue
 			}
-			var s [][]f.Share
 			for i := 0; i < val; i++ {
-				tmp := rand.Intn(2)
-				enc, shares := c.generateShares(tmp)
-				s = append(s, shares)
-				go c.vote(tmp, enc)
+				go c.vote(rand.Intn(2))
 			}
-
-			startShares := s[0]
-			t, _:= new(big.Int).SetString(n.Prime, 10)
-			arth := n.NewSimpleArithmetic(t)
-
-			for i, v := range s {
-				if i != 0 {
-					for j, x := range v {
-						startShares[j] = arth.Add(startShares[j], x)
-					}
-				}
-			}
-			fmt.Println(c.ss.Reconstruct(startShares, 2))
 		case "exit":
 			break
 		}

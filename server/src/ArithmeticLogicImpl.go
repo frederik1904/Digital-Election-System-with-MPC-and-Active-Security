@@ -2,6 +2,7 @@ package src
 
 import (
 	"../framework"
+	"fmt"
 	"math/big"
 )
 
@@ -15,6 +16,7 @@ func NewSimpleArithmetic(prime *big.Int) *SimpleArithmetic {
 
 func (s *SimpleArithmetic) Add(a, b framework.Share) framework.Share {
 	validate(a, b)
+	fmt.Printf("A: %v\nB: %v\n", a, b)
 	tmp := big.NewInt(0).Add(a.PointValue, b.PointValue)
 	res := tmp.Mod(tmp, s.Prime)
 	return framework.NewSecret(a.Point, res, a.Id)

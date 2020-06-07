@@ -2,12 +2,8 @@ package src
 
 import (
 	f "../framework"
-	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -15,9 +11,7 @@ import (
 	"github.com/google/uuid"
 	"log"
 	"math/big"
-	"net"
 	"net/http"
-	"net/rpc"
 	"sort"
 	"strings"
 	"sync"
@@ -31,7 +25,7 @@ type NetworkHTTPS struct {
 	ipListLock                                       sync.RWMutex
 	stateWait                                        chan phaseTwoStartStruct
 	observer                                         f.NetworkObserver
-	receivedShares                                   map[uuid.UUID]*EncryptedShareSeenFrom
+	receivedIds                                      map[uuid.UUID]bool
 	receivedSecretsForValidation                     map[uuid.UUID][]f.Share
 	receiverIdsLock, receiverSecretForValidationLock sync.RWMutex
 	keyPair                                          *rsa.PrivateKey
@@ -46,7 +40,6 @@ type IpStruct struct {
 	Port      string
 	client    *resty.Client
 	PublicKey rsa.PublicKey
-	RPCPort   string
 }
 
 type secretToFlood struct {
@@ -72,63 +65,8 @@ type ClientInfo struct {
 
 type ClientHolder struct {
 	client *resty.Client
-	rpcClient *rpc.Client
 	ipPort string
 }
-
-
-type ChallengeVoteStruct struct {
-	Id        uuid.UUID
-	SecretKey []byte
-	Hash      [32]byte
-	Sender    int
-}
-
-type EncryptedShareSeenFrom struct {
-	sharesReceived     map[[32]byte]*SignedEncryptedShare
-	signaturesSeenFrom map[int]bool
-	delivered          bool
-	invalidated        bool
-	VerificationSend bool
-	challenges         []ChallengeVoteStruct
-	lock               sync.Mutex
-}
-
-type Signature struct {
-	Sender int
-	Sign   []byte
-}
-
-type EncryptedShareListMarshalFriendly struct {
-	Id        uuid.UUID
-	Proof     []string
-	EncShares []EncryptedShare
-}
-
-func (e EncryptedShareList) TransformToMarshalFriendly() EncryptedShareListMarshalFriendly {
-	var strings []string
-
-	return EncryptedShareListMarshalFriendly{
-		Id:        e.Id,
-		Proof:     strings,
-		EncShares: e.EncShares,
-	}
-}
-
-func (e EncryptedShareListMarshalFriendly) TransformEncryptedShareList() EncryptedShareList {
-	var proof []big.Int
-
-	for _, v := range e.Proof {
-		res, _ := new(big.Int).SetString(v, 10)
-		proof = append(proof, *res)
-	}
-
-	return EncryptedShareList{
-		Id:        e.Id,
-		EncShares: e.EncShares,
-	}
-}
-
 
 type EncryptedShareList struct {
 	Sender    int
@@ -137,16 +75,9 @@ type EncryptedShareList struct {
 	EncShares []EncryptedShare
 }
 
-type SignedEncryptedShare struct {
-	Signatures      []Signature
-	EncryptedShares EncryptedShareListMarshalFriendly
-}
-
-
 type EncryptedShare struct {
 	Point      int
 	CipherText []byte
-	EncryptedShareKey []byte
 }
 
 type EncShareListHash struct {
@@ -169,33 +100,29 @@ func (n *NetworkHTTPS) StartNetwork(log interface{}) (int, f.Share, *big.Int, uu
 	n.stateWait = make(chan phaseTwoStartStruct)
 	n.logger = log.(Logger)
 
-	n.receivedShares = make(map[uuid.UUID]*EncryptedShareSeenFrom)
+	n.receivedIds = make(map[uuid.UUID]bool)
 	n.receivedSecretsForValidation = make(map[uuid.UUID][]f.Share)
 
 	//TODO: Error handling
 	n.keyPair, _ = rsa.GenerateKey(rand.Reader, 2048)
-	listener, p := n.createListener() // Adds local address to localPeer
-	go rpc.Accept(listener)
-	rpc.Register(n)
 	inn := GetInput("Are you creating a network? (Y/n)")
 	if strings.Compare(strings.ToLower(strings.TrimSpace(inn)), "n") == 0 {
 		var masterIpPort, port string
-		portValue, _ := rand.Int(rand.Reader, big.NewInt(1000))
-		port = fmt.Sprintf("%d", portValue.Add(portValue, big.NewInt(5000)))
-
 		if DEBUG == 0 {
 			masterIpPort = GetInput("Please write the ip and port of a server on the network to join: (ip:port)")
+			port = GetInput("Please write the port you want to use:")
+
 		} else {
 			masterIpPort = fmt.Sprintf("%s:%s", MasterIp, MasterPort)
+			portValue, _ := rand.Int(rand.Reader, big.NewInt(1000))
+			port = fmt.Sprintf("%d", portValue.Add(portValue, big.NewInt(5000)))
 		}
 
 		n.ownIp = IpStruct{
 			Ip:        localIp,
 			Port:      port,
-			RPCPort:   p,
 			PublicKey: n.keyPair.PublicKey,
 		}
-
 
 		n.ipList = append(n.ipList, n.ownIp)
 		go n.RunNetwork(port)
@@ -213,7 +140,6 @@ func (n *NetworkHTTPS) StartNetwork(log interface{}) (int, f.Share, *big.Int, uu
 		n.ownIp = IpStruct{
 			Ip:        localIp,
 			Port:      MasterPort,
-			RPCPort: p,
 			PublicKey: n.keyPair.PublicKey,
 		}
 
@@ -255,23 +181,13 @@ func (n *NetworkHTTPS) StartNetwork(log interface{}) (int, f.Share, *big.Int, uu
 	return len(n.ipList), phaseTwoStruct.Secret.TransformToShare(), n.prime, n.sessionId, int64(n.serverId)
 }
 
-func (n *NetworkHTTPS) createListener() (*net.TCPListener, string) {
-	var ln *net.TCPListener
-
-	addr, _ := net.ResolveTCPAddr("tcp", ":")
-	ln, _ = net.ListenTCP("tcp", addr)
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-
-	return ln, port
-}
-
 func (n *NetworkHTTPS) RunNetwork(port string) {
 	http.HandleFunc(string(JoinNetwork), n.joinNetwork)
 	http.HandleFunc(string(NewParticipantInNetwork), n.newParticipantInNetwork)
 	http.HandleFunc(string(SignalStartPhaseTwo), n.receiveStartPhaseTwoSignal)
 	http.HandleFunc(string(GetAllParticipants), n.getAllParticipants)
 	http.HandleFunc(string(GetPublicKey), n.getPublicKey)
-	http.HandleFunc(string(SendShare), n.receiveClientShare)
+	http.HandleFunc(string(SendShare), n.receiveShare)
 	http.HandleFunc(string(ClientJoinNetwork), n.clientJoinNetwork)
 	http.HandleFunc(string(GetCurrentShare), n.sendCurrentShare)
 
@@ -299,19 +215,26 @@ func (n *NetworkHTTPS) Flood(share f.Share) {
 }
 
 func (n *NetworkHTTPS) FloodSecretToShare(share secretToFlood) {
-	panic("implement me")
+	go n.logger.LOG(n.sessionId.String(), share.Id.String(), "FloodSecretToShare",
+		time.Now(), n.serverId)
+
+	for _, v := range n.ipList {
+		go n.floodSingleClient(
+			v,
+			FloodSecret,
+			share,
+			POST)
+	}
 }
 
 func (n *NetworkHTTPS) VerificationFlood(share f.Share) {
-	go n.logger.LOG(n.sessionId.String(), share.Id.String(), "VerificationFlood",
-		n.serverId, time.Now())
-	fmt.Printf("Observer sent share: %v\n", share.Id)
+	fmt.Printf("Observer sent share: %v\n", share)
 	for _, v := range n.ipList {
 		go n.floodSingleClient(
 			v,
 			ReceiveVerificationSecret,
 			share,
-			POST, true)
+			POST)
 	}
 }
 
@@ -323,66 +246,9 @@ func setHeader(w *http.ResponseWriter) {
 	(*w).Header().Set("Content-Type", "application/json")
 }
 
-func (n *NetworkHTTPS) ReciveVerificationSecret(share f.Share, reply *bool) error {
-	go n.logger.LOG(n.sessionId.String(), share.Id.String(), "reciveVerificationSecret",
-		n.serverId, time.Now())
-
-	n.receiverIdsLock.Lock()
-	defer n.receiverIdsLock.Unlock()
-	sharesSeenFrom, exists := n.receivedShares[share.Id]
-
-	if exists && sharesSeenFrom.delivered {
-		return nil
-	}
-
-	shares, exist := n.receivedSecretsForValidation[share.Id]
-
-	if !exist {
-		n.receivedSecretsForValidation[share.Id] = []f.Share{share}
-	} else {
-		for _, v := range shares {
-			if v.Point == share.Point {
-				exist = false
-				break
-			}
-		}
-		if exist {
-			shares = append(n.receivedSecretsForValidation[share.Id], share)
-			n.receivedSecretsForValidation[share.Id] = shares
-			if len(shares) >= n.calculateMinimumNeededParties() {
-				go n.logger.LOG(n.sessionId.String(), share.Id.String(), "DELIVER_VOTE", n.serverId, time.Now())
-				n.receivedShares[share.Id].delivered = true
-				var s f.Share
-				for _, v := range sharesSeenFrom.sharesReceived {
-					if len(v.Signatures) >= n.t {
-						s, _, _ = n._DecryptVerifyShare(*v)
-					}
-				}
-
-				n.observer.VerificationSecretArrived(share.Id, shares, s)
-			}
-			for _, v := range n.ipList {
-				go n.floodSingleClient(
-					v,
-					ReceiveVerificationSecret,
-					share,
-					POST, true)
-			}
-		}
-	}
-	return nil
-}
-
 func (n *NetworkHTTPS) sendCurrentShare(w http.ResponseWriter, r *http.Request) {
 	setHeader(&w)
 	js, _ := json.Marshal(n.observer.GetCurrentVote())
-
-	for i,v := range n.receivedShares {
-			fmt.Println(i,v.delivered,v.invalidated, len(v.signaturesSeenFrom))
-	}
-
-	fmt.Println(len(n.receivedShares))
-
 	w.Write(js)
 }
 
@@ -424,6 +290,7 @@ func (n *NetworkHTTPS) newParticipantInNetwork(w http.ResponseWriter, r *http.Re
 	} else {
 		Debug(3, "We already have the participant's ip (%s:%s) in our list\n", ip.Ip, ip.Port)
 	}
+
 }
 
 // A server endpoint to call when you want to join the network as a server, then calls all other servers in the network
@@ -465,210 +332,34 @@ func (n *NetworkHTTPS) receiveStartPhaseTwoSignal(w http.ResponseWriter, r *http
 	n.stateWait <- phaseTwo
 }
 
-// Receives a share form the server, and checks it against the client share to verify.
-func (n *NetworkHTTPS) ReceiveServerShare(serverSignedEncryptionShare SignedEncryptedShare, reply *bool) error {
+func (n *NetworkHTTPS) receiveShare(w http.ResponseWriter, r *http.Request) {
+	var encShares EncryptedShareList
+	var share f.Share
+
+	// Decrpypt the specific share that we have the private key for.
+	json.NewDecoder(r.Body).Decode(&encShares)
+	for _, v := range encShares.EncShares {
+		if v.Point == n.serverId {
+			share = n.decryptShare(v)
+		}
+	}
+
+	// Take locks because saving sharesSeenFrom
 	n.receiverIdsLock.Lock()
-	shareId := serverSignedEncryptionShare.EncryptedShares.Id
-	encryptedShareSeenFrom, shareSeen := n.receivedShares[shareId]
-
-	if shareSeen {
-		encryptedShareSeenFrom.lock.Lock()
-		n.receiverIdsLock.Unlock()
-
-		if encryptedShareSeenFrom.invalidated {
-			go n.logger.LOG(n.sessionId.String(), shareId.String(), "ReceiveServerShare(INVALIDATED)", n.serverId, time.Now())
-			encryptedShareSeenFrom.lock.Unlock()
-			Debug(2, "The share with id: %v was already invalidated\n")
-			return nil
-		}
-
-		if encryptedShareSeenFrom.delivered  || encryptedShareSeenFrom.VerificationSend {
-			go n.logger.LOG(n.sessionId.String(), shareId.String(), "ReceiveServerShare(GOTTAGOFAST)", n.serverId, time.Now())
-			encryptedShareSeenFrom.lock.Unlock()
-			Debug(2, "The share with id: %v was already delivered\n")
-			return nil
-		}
-	}
-	go n.logger.LOG(n.sessionId.String(), shareId.String(), "ReceiveServerShare", n.serverId, time.Now())
-
-	// Create hash for comparison with other shares
-	shareHash := createShareHash(serverSignedEncryptionShare)
-
-	// Check if share has been seen before
-
-	if !shareSeen {
-		Debug(2, "First time seeing id: %v", serverSignedEncryptionShare.EncryptedShares.Id)
-		// Add new share seen from with share server sent added.
-		encryptedShareSeenFrom = &EncryptedShareSeenFrom{
-			sharesReceived:     map[[32]byte]*SignedEncryptedShare{},
-			signaturesSeenFrom: map[int]bool{},
-		}
-		n.receivedShares[shareId] = encryptedShareSeenFrom
-		encryptedShareSeenFrom.lock.Lock()
-		n.receiverIdsLock.Unlock()
-	}
-
-	signEncShare, found := encryptedShareSeenFrom.sharesReceived[shareHash]
-
-	if !found {
-		Debug(2, "First time seeing hash: %v", shareHash)
-		signEncShare = &SignedEncryptedShare{
-			Signatures:      []Signature{},
-			EncryptedShares: serverSignedEncryptionShare.EncryptedShares,
-		}
-	}
-
-	newSignatures := findNewSignatures(serverSignedEncryptionShare.Signatures, signEncShare.Signatures, encryptedShareSeenFrom.signaturesSeenFrom)
-
-	// Create variable to store new found signatures
-	var newVerifiedSignatures bool = false
-	Debug(2, "New signatures from: ")
-	for _, v := range newSignatures {
-		Debug(2, "%v - ", v.Sender)
-		if encryptedShareSeenFrom.signaturesSeenFrom[v.Sender] {
-			Debug(2, "Already verified signature from sender %v\n", v.Sender)
-			continue
-		}
-		verifyError := rsa.VerifyPKCS1v15(&n.ipList[v.Sender].PublicKey, crypto.SHA256, shareHash[:], v.Sign[:])
-		if verifyError != nil {
-			Debug(0, "New server share received with unverifiable signature\n%v\n", verifyError)
-		} else {
-			Debug(2, "Verified share from sender\n")
-			signEncShare.Signatures = append(signEncShare.Signatures, v)
-			newVerifiedSignatures = true
-			encryptedShareSeenFrom.signaturesSeenFrom[v.Sender] = true
-		}
-	}
-	encryptedShareSeenFrom.sharesReceived[shareHash] = signEncShare
-
-	n._CheckSignatures(encryptedShareSeenFrom)
-	Debug(2, "Got new signatures: %v\n", newVerifiedSignatures)
-	encryptedShareSeenFrom.lock.Unlock()
-	if newVerifiedSignatures {
+	defer n.receiverIdsLock.Unlock()
+	_, exist := n.receivedIds[share.Id]
+	if !exist {
+		// Log info to database
+		go n.logger.LOG(n.sessionId.String(), share.Id.String(), "DELIVER_VOTE",
+			time.Now(), n.serverId)
+		n.receivedIds[share.Id] = true
+		n.observer.NewSecretArrived(share)
 		for _, v := range n.ipList {
-			n.floodSingleClient(v, ReceiveServerShare, signEncShare, "", true)
-		}
-	}
-
-	return nil
-}
-
-func (n *NetworkHTTPS) _CheckSignatures(encryptedShareSeenFrom *EncryptedShareSeenFrom) {
-	if encryptedShareSeenFrom.delivered {
-		return
-	}
-	for _, v := range encryptedShareSeenFrom.sharesReceived {
-		if len(v.Signatures) >= len(n.ipList)-n.t {
-			// Verify received share. If fail, bail out and return error on RPC
-			share, err, _ := n._DecryptVerifyShare(*v)
-			if err != nil {
-				if len(v.Signatures) >= len(n.ipList) - n.t {
-					encryptedShareSeenFrom.invalidated = true
-				}
-				encryptedShareSeenFrom.lock.Unlock()
-				Debug(2, "Could not verify share from server (ReceiveServerShare) with error: %v\n", err)
-				return //errors.New(fmt.Sprintf("Could not very share received from server (ReceiveServerShare) with error: %v", err))
-			}
-
-			Debug(0, "I delivered, %v\n", share.Id)
-			Debug(2, "EcnSharesSeenFrom: %v\n", encryptedShareSeenFrom.sharesReceived)
-			if !encryptedShareSeenFrom.invalidated {
-				encryptedShareSeenFrom.VerificationSend = true
-				n.observer.NewShareArrived(share)
-			}
-			break
-		}
-	}
-}
-
-func (n *NetworkHTTPS) receiveClientShare(w http.ResponseWriter, r *http.Request) {
-	setHeader(&w)
-
-	var encShareList EncryptedShareListMarshalFriendly
-	err := json.NewDecoder(r.Body).Decode(&encShareList)
-	if err != nil {
-		panic(err)
-	}
-
-	clientSignedEncryptionShare := SignedEncryptedShare{
-		Signatures:      []Signature{},
-		EncryptedShares: encShareList,
-	}
-
-	shareId := clientSignedEncryptionShare.EncryptedShares.Id
-	n.receiverIdsLock.Lock()
-	encryptedShareSeenFrom, found := n.receivedShares[shareId]
-	if found {
-		encryptedShareSeenFrom.lock.Lock()
-		n.receiverIdsLock.Unlock()
-
-		if encryptedShareSeenFrom.invalidated {
-			go n.logger.LOG(n.sessionId.String(), shareId.String(), "receiveClientShare(INVALIDATED)", n.serverId, time.Now())
-			encryptedShareSeenFrom.lock.Unlock()
-			Debug(2, "The share with id: %v was already invalidated\n")
-			return
-		}
-
-		if encryptedShareSeenFrom.delivered || encryptedShareSeenFrom.VerificationSend {
-			encryptedShareSeenFrom.lock.Unlock()
-			go n.logger.LOG(n.sessionId.String(), shareId.String(), "receiveClientShare(GOTTAGOFAST)", n.serverId, time.Now())
-			Debug(2, "The share with id: %v was already delivered\n")
-			return
-		}
-	}
-	go n.logger.LOG(n.sessionId.String(), shareId.String(), "receiveClientShare", n.serverId, time.Now())
-
-	// Client share hashed for comparison
-	shareHash := createShareHash(clientSignedEncryptionShare)
-
-	// Create own signature
-	signature, _ := rsa.SignPKCS1v15(rand.Reader, n.keyPair, crypto.SHA256, shareHash[:])
-	ownSign := Signature{Sender: n.serverId, Sign: signature}
-
-	clientSignedEncryptionShare.Signatures = append(clientSignedEncryptionShare.Signatures, ownSign)
-
-	// Check if share with Id has been seen from servers and add signatures from correct server share hash
-
-	if found {
-		Share, exist := encryptedShareSeenFrom.sharesReceived[shareHash]
-		if exist {
-			Share.Signatures = append(Share.Signatures, ownSign)
-			clientSignedEncryptionShare = *Share
-		} else {
-			encryptedShareSeenFrom.sharesReceived[shareHash] = &clientSignedEncryptionShare
+			go n.floodSingleClient(v, SendShare, encShares, POST)
 		}
 	} else {
-		// Else, add new share seen from with share client sent.
-		encryptedShareSeenFrom = &EncryptedShareSeenFrom{
-			sharesReceived:     map[[32]byte]*SignedEncryptedShare{shareHash: &clientSignedEncryptionShare},
-			signaturesSeenFrom: map[int]bool{n.serverId: true},
-		}
-		n.receivedShares[shareId] = encryptedShareSeenFrom
-		encryptedShareSeenFrom.lock.Lock()
-		n.receiverIdsLock.Unlock()
-	}
-
-	// Verify received share. If fail, bail out
-	_, err, _ = n._DecryptVerifyShare(clientSignedEncryptionShare)
-	if err != nil {
-		if !found {
-			encryptedShareSeenFrom.signaturesSeenFrom[n.serverId] = false
-		}
-
-		encryptedShareSeenFrom.lock.Unlock()
-		Debug(2, "Could not verify share received from client (receiveClientShare)\n")
-		w.WriteHeader(400)
-		return
-	}
-
-	// Set our server id to have added a signature
-	encryptedShareSeenFrom.signaturesSeenFrom[n.serverId] = true
-	encryptedShareSeenFrom.sharesReceived[shareHash] = &clientSignedEncryptionShare
-	n._CheckSignatures(encryptedShareSeenFrom)
-	encryptedShareSeenFrom.lock.Unlock()
-
-	for _, v := range n.ipList {
-		go n.floodSingleClient(v, ReceiveServerShare, clientSignedEncryptionShare, "", true)
+		go n.logger.LOG(n.sessionId.String(), share.Id.String(), "RECEIVE_SHARE",
+			time.Now(), n.serverId)
 	}
 }
 
@@ -752,28 +443,22 @@ func (n *NetworkHTTPS) ChangeNetworkState(state f.NetworkStates) {
 }
 
 //UTIL
-func (n *NetworkHTTPS) floodSingleClient(ip IpStruct, endPoint ApiEndpoints, payload interface{}, ty RequestType, rpc ...bool) ([]byte, error) {
-	if len(rpc) == 0 {
-		var resp *resty.Response
-		var err error
-		request := n.createClient(ip).R()
+func (n *NetworkHTTPS) floodSingleClient(ip IpStruct, endPoint ApiEndpoints, payload interface{}, ty RequestType) ([]byte, error) {
+	var resp *resty.Response
+	var err error
+	request := n.createClient(ip).R()
 
-		switch ty {
-		case GET:
-			resp, err = request.
-				Get(string(endPoint))
-		case POST:
-			resp, err = request.
-				SetBody(payload).
-				Post(string(endPoint))
-		}
-		DebugRestCall(resp, err)
-		return resp.Body(), err
+	switch ty {
+	case GET:
+		resp, err = request.
+			Get(string(endPoint))
+	case POST:
+		resp, err = request.
+			SetBody(payload).
+			Post(string(endPoint))
 	}
-
-	n.createRPCClient(ip).Go(string(endPoint), payload, nil, nil)
-
-	return []byte{}, nil
+	DebugRestCall(resp, err)
+	return resp.Body(), err
 }
 
 func (n *NetworkHTTPS) createClient(ip IpStruct) *resty.Client {
@@ -816,120 +501,20 @@ func (n *NetworkHTTPS) sortIpStruct() {
 	})
 }
 
-func (n *NetworkHTTPS) decryptShare(encShare EncryptedShare) (f.Share, []byte) {
-	key, err := rsa.DecryptOAEP(crypto.SHA1.New(), rand.Reader, n.keyPair, encShare.EncryptedShareKey, nil)
+func (n *NetworkHTTPS) decryptShare(encShare EncryptedShare) f.Share {
+	msg, err := rsa.DecryptPKCS1v15(rand.Reader, n.keyPair, encShare.CipherText)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Could not decrypt the share with point %v, own point: %v", encShare.Point, n.serverId))
 	}
-	gcm := _GenerateGCM(key)
-	nonceSize := gcm.NonceSize()
-	if len(encShare.CipherText) < nonceSize {
-		panic("NonceSize is larger than ciphertext")
+	var share f.Share
+	if err := json.Unmarshal(msg, &share); err != nil {
+		fuckMagnus("ERROR: %v", err)
 	}
-	nonce, CipherText := encShare.CipherText[:nonceSize], encShare.CipherText[nonceSize:]
 
-	msg, err := gcm.Open(nil, nonce, CipherText, nil)
-	if err != nil {
-		panic(err)
-	}
-	var MShare f.MarshalFriendlyShare
-
-	if err := json.Unmarshal(msg, &MShare); err != nil {
-		Debug(2, "ERROR: %v", err)
-	}
-	res := MShare.TransformToShare()
-
-	return res, key
+	return share
 }
 
 // Calculates the minimum needed votes before we can proceed with verification and sending secrets
 func (n *NetworkHTTPS) calculateMinimumNeededParties() int {
 	return 2*n.t + 1
-}
-
-func (n *NetworkHTTPS) createRPCClient(ip IpStruct) *rpc.Client {
-	n.ipListLock.Lock()
-	defer n.ipListLock.Unlock()
-	exist := false
-	str := fmt.Sprintf("%s:%s", ip.Ip, ip.RPCPort)
-	var holder *ClientHolder
-
-	for _, v := range n.clients {
-		if strings.Compare(str, v.ipPort) == 0 {
-			exist = true
-			holder = v
-		}
-	}
-	if exist && holder.rpcClient != nil {
-		return holder.rpcClient
-	}
-
-	client, _ := rpc.Dial("tcp", str)
-	if exist {
-		holder.rpcClient = client
-	} else {
-		n.clients = append(n.clients, &ClientHolder{
-			rpcClient: client,
-			ipPort:    str,
-		})
-	}
-
-	return client
-}
-
-func createShareHash(clientSignedEncryptionShare SignedEncryptedShare) [32]byte {
-	clientMarshal, err := json.Marshal(clientSignedEncryptionShare.EncryptedShares)
-	if err != nil {
-		panic(fmt.Sprintf("NetworkHTTPSImpl._computeReceived marshal (clientSignedEncryptionShare shareSeen=true) error: %v", err))
-	}
-	clientHash := sha256.Sum256(clientMarshal)
-	return clientHash
-}
-
-func (n *NetworkHTTPS) _DecryptVerifyShare(s SignedEncryptedShare) (f.Share, error, []byte) {
-	var share f.Share
-	var key []byte
-	encShareList := s.EncryptedShares.TransformEncryptedShareList()
-
-	for _, v := range encShareList.EncShares {
-		if v.Point == n.serverId {
-			share, _ = n.decryptShare(v)
-			break
-		}
-	}
-
-	return share, nil, key
-}
-
-func findNewSignatures(receivedSet, localSet []Signature, seenMap map[int]bool) []Signature {
-	var signs []Signature
-	for _, v := range receivedSet {
-		//If we have already verified a signature from the given sender we wont look at any other signatures from that server
-		if seenMap[v.Sender] {
-			continue
-		}
-		found := false
-		for _, j := range localSet {
-			if v.Sender == j.Sender {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			signs = append(signs, v)
-		}
-	}
-	return signs
-}
-
-func _GenerateGCM(key []byte) cipher.AEAD {
-	ci, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	gcm, err := cipher.NewGCM(ci)
-
-	return gcm
 }

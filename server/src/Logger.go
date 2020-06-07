@@ -2,7 +2,6 @@ package src
 
 import (
 	"database/sql"
-	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"strings"
 	"time"
@@ -16,12 +15,11 @@ type Logger struct {
 }
 
 type logStruct struct {
-	sessionId    string
-	shareId      string
-	action       string
-	serverId     int
-	time         time.Time
-	protocolType string
+	sessionId  string
+	shareId    string
+	action     string
+	serverId   int
+	time       time.Time
 }
 
 func MakeLogger() Logger {
@@ -34,7 +32,7 @@ func MakeLogger() Logger {
 	return log
 }
 
-func (l *Logger) LOG(sessionId, shareId, action string, serverId int,time time.Time) {
+func (l *Logger) LOG(sessionId, shareId, action string, time time.Time, serverId int) {
 	l.logChannel <- logStruct{
 		sessionId:  sessionId,
 		shareId:    shareId,
@@ -75,8 +73,7 @@ func (l *Logger) StartLogger() {
 				sqlStr += strings.Join(inserts, ",")
 				stmtIns, err := db.Prepare(sqlStr)
 				if err != nil {
-					fmt.Println(err)
-					time.Sleep(1000)
+					time.Sleep(100)
 					continue
 				}
 				stmtIns.Exec(val...)

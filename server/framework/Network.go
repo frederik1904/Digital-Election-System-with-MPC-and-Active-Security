@@ -11,8 +11,7 @@ import (
 // NetworkObserver interface
 type NetworkObserver interface {
 	ChangedNetworkState(state NetworkStates)
-	NewShareArrived(secret Share)
-	VerificationSecretArrived(id uuid.UUID, verificationSet []Share, s Share)
+	NewSecretArrived(secret Share)
 	GetCurrentVote() Share
 }
 

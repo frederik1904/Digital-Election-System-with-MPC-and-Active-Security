@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const DEBUG = 1
+const DEBUG = 0
 const LOG = false
 
 func Debug(level int, format string, a ...interface{}) {
