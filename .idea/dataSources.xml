@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
+    <data-source source="LOCAL" name="MySQL - bachelor_logging@therealflamingo.tk" uuid="0117a95d-803e-4151-8a76-a5ee7fb3ef6a">
+      <driver-ref>mysql.8</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
+      <jdbc-url>jdbc:mysql://therealflamingo.tk:3306/bachelor_logging</jdbc-url>
+    </data-source>
+  </component>
+</project>
