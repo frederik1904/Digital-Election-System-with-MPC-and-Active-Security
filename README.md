@@ -1,9 +1,9 @@
 # Digital-Election-System-with-MPC-and-Active-Security
 
 ## Authors:
-Benjamin Zachariae
-Frederik Jacobsen
-Magnus Jensen
+**Benjamin Zachariae\
+Frederik Jacobsen\
+Magnus Jensen**
 
 ## What is the project?
 This project was made for our bachelor degree at Aarhus university. 
