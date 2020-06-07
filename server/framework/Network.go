@@ -11,17 +11,17 @@ import (
 // NetworkObserver interface
 type NetworkObserver interface {
 	ChangedNetworkState(state NetworkStates)
-	NewShareArrived(share Share, proof []big.Int)
+	NewShareArrived(secret Share)
+	VerificationSecretArrived(id uuid.UUID, verificationSet []Share, s Share)
 	GetCurrentVote() Share
-	RevokeVote(share Share, proof []big.Int)
 }
 
 // Network interface
 type Network interface {
-	StartNetwork(log interface{}) (int, Share, []big.Int, ZeroKnowledge, *big.Int, *big.Int, uuid.UUID, int64) // Starts network and waits for all servers to connect. Returns number of parties.
+	StartNetwork(log interface{}) (int, Share, *big.Int, uuid.UUID, int64) // Starts network and waits for all servers to connect. Returns number of parties.
 	AddObserver(networkObserver NetworkObserver)
 	RemoveObserver(networkObserver NetworkObserver)
 	ChangeNetworkState(state NetworkStates)
-	Flood(share Share)
-	VerificationFlood(share Share)
+	Flood(secret Share)
+	VerificationFlood(secret Share)
 }

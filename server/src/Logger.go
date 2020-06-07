@@ -5,7 +5,6 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -14,15 +13,15 @@ type Logger struct {
 	logChannel chan logStruct
 	loggerList []logStruct
 	lastSent   time.Time
-	lock       sync.Mutex
 }
 
 type logStruct struct {
-	sessionId string
-	shareId   string
-	action    string
-	serverId  int
-	time      time.Time
+	sessionId    string
+	shareId      string
+	action       string
+	serverId     int
+	time         time.Time
+	protocolType string
 }
 
 func MakeLogger() Logger {
@@ -35,20 +34,20 @@ func MakeLogger() Logger {
 	return log
 }
 
-func (l *Logger) LOG(sessionId, shareId, action string, serverId int, time time.Time) {
+func (l *Logger) LOG(sessionId, shareId, action string, serverId int,time time.Time) {
 	l.logChannel <- logStruct{
-		sessionId: sessionId,
-		shareId:   shareId,
-		action:    action,
-		time:      time,
-		serverId:  serverId,
+		sessionId:  sessionId,
+		shareId:    shareId,
+		action:     action,
+		time:       time,
+		serverId:   serverId,
 	}
 }
 
 const rowSQL = "(?, ?, ?, ?, ?, ?)"
 
 func (l *Logger) StartLogger() {
-	db, err := sql.Open("mysql", "bachelor:bachelor@tcp(68.183.77.224:3306)/bachelor_logging")
+	db, err := sql.Open("mysql", "bachelor:bachelor@tcp(therealflamingo.tk:3306)/bachelor_logging")
 	if err != nil {
 		panic("LOGGER COULD NOT CONNECT TO DATABASE")
 	}
@@ -58,33 +57,21 @@ func (l *Logger) StartLogger() {
 		select {
 		case tmp := <-l.logChannel:
 			l.loggerList = append(l.loggerList, tmp)
-		case <-time.After(1 * time.Second):
+		case <-time.After(5 * time.Second):
 		}
 
 		if time.Now().Unix()-l.lastSent.Unix() > 10 || len(l.loggerList) > 5000 {
-			resToSend := make([]logStruct, 5000)
-			var rest []logStruct
-			cpyAmount := copy(resToSend, l.loggerList)
-			if cpyAmount > 5000 {
-				rest = append(rest, l.loggerList[5000:]...)
-			}
-			if cpyAmount == 0 {
-				continue
-			}
-
-			//fmt.Println(len(l.loggerList), time.Now().Unix()-l.lastSent.Unix())
 			sqlStr := "INSERT INTO Log " +
 				"(_TIMESTAMP, _SESSION_ID, _SERVER_ID, _ACTION, _SHARE_ID, _PROTOCOL_TYPE) VALUES "
 			var val []interface{}
 			var inserts []string
 
-			for i := 0; i < cpyAmount; i++ {
-				v := resToSend[i]
+			for _, v := range l.loggerList {
 				inserts = append(inserts, rowSQL)
 				val = append(val, v.time.UnixNano(), v.sessionId, v.serverId, v.action, v.shareId, ProtocolType)
 			}
 
-			if len(inserts) != 0  && val != nil{
+			if len(inserts) != 0 {
 				sqlStr += strings.Join(inserts, ",")
 				stmtIns, err := db.Prepare(sqlStr)
 				if err != nil {
@@ -92,13 +79,10 @@ func (l *Logger) StartLogger() {
 					time.Sleep(1000)
 					continue
 				}
-				//fmt.Println(val)
 				stmtIns.Exec(val...)
-				stmtIns.Close()
-				//fmt.Println(err, res)
 			}
 
-			l.loggerList = rest
+			l.loggerList = []logStruct{}
 			l.lastSent = time.Now()
 		}
 	}

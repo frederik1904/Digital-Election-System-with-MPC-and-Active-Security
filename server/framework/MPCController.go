@@ -7,8 +7,7 @@ import (
 
 // State ...
 type State struct {
-	Share  Share
-	Proof []big.Int
+	Share   Share
 	Network NetworkStates
 }
 
@@ -19,24 +18,19 @@ const (
 	RESULT
 )
 
-func NewState(currentShare *Share, proof []big.Int, point ...int64) *State {
-	if currentShare == nil {
+func NewState(currentSecret *Share, point int64) *State {
+	if currentSecret == nil {
 		return &State{
-			Share:  Share{
-				S:     *big.NewInt(0),
-				T:     *big.NewInt(0),
-				Point: point[0],
-				Id:    uuid.UUID{},
-			},
+			Share:   NewSecret(point, big.NewInt(0), uuid.UUID{}),
 			Network: 0,
-			Proof: proof,
 		}
 	}
-	return &State{Share: *currentShare, Network: 0}
+	return &State{Share: *currentSecret, Network: 0}
 }
 
 // MPCController øv bøv
 type MPCController interface {
+
 	// Fields
 	GetSecretSharing() *SecretSharing
 	GetObserver() *NetworkObserver
@@ -45,12 +39,15 @@ type MPCController interface {
 	GetState() *State
 
 	// Secrets
-	SecretGen(secret *big.Int) ([]Share, []big.Int, ZeroKnowledge)
-	VerifyShare(share Share, proof []big.Int, knowledge ZeroKnowledge) bool
+	SecretGen(i int) []Share
+	DecodeSecret(i int) Share
+	Distribute(secret Share)
+	VerifySecret(verificationSecrets []Share) bool // Verify via x(1-x) that the secret is valid (is in {0,1} and other stuff for active)
+	CreateVerificationSecret(secret *Share) Share
 
-	// Arithmetics Operations on the currentShare, found in State.
-	Add(a, aProof []big.Int) (Share, []big.Int)
+	// Arithmetics Operations on the currentSecret, found in State.
+	Add(s Share)
 	Multiply_f(a Share, b Share) Share
-	Multiply_const(a Share, i *big.Int, aProof []big.Int) (Share, []big.Int)
+	Multiply_const(a Share, i int) Share
 	Comparison(a Share, b Share) Share
 }

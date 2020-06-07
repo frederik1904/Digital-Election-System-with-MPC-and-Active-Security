@@ -8,14 +8,13 @@ import (
 )
 
 func main() {
-
 	log := src.MakeLogger()
 
 	input := src.GetInput("Want to start a Server og client? (S/c):")
 	if strings.Compare(input, "c") == 0 {
 		Client.MakeClient(log)
 	} else {
-		mpcController := src.NewActiveMPCController(log)
+		mpcController := src.NewPassiveMPCController(log)
 		fmt.Println(mpcController.GetState())
 	}
 
@@ -30,7 +29,7 @@ func main() {
 		if strings.Compare(strings.TrimSpace(inn), "c") == 0 {
 			n.GetVote()
 		} else {
-
+			n.RunNetwork("8080")
 		}
 	*/
 }

@@ -48,7 +48,7 @@ func TestLagrange(t *testing.T) {
 }
 
 func TestReconstruction(t *testing.T) {
-	secrets := []framework.Secret{
+	secrets := []framework.Share{
 		framework.NewSecret(1, 1),
 		framework.NewSecret(2, 8),
 		framework.NewSecret(3, 6),
@@ -62,7 +62,7 @@ func TestReconstruction(t *testing.T) {
 		t.Errorf("Wrong reconstruction. Found %s, expected 7", recon)
 	}
 
-	secrets_subset135 := []framework.Secret{secrets[0], secrets[2], secrets[4]}
+	secrets_subset135 := []framework.Share{secrets[0], secrets[2], secrets[4]}
 	recon2 := secretsharing.Reconstruct(secrets_subset135)
 	if recon2.Cmp(big.NewInt(7)) != 0 {
 		t.Errorf("Wrong reconstruction. Found %s, expected 7", recon2)

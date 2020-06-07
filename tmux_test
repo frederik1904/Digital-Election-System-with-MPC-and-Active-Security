@@ -1,6 +1,0 @@
-new-session -s workspace -d
-split-window -h -t workspace
-split-window -h -t workspace
-split-window -h -t workspace
-split-window -h -t workspace
-select-layout even-horizontal

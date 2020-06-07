@@ -9,13 +9,13 @@ import (
 
 func TestSecretSharingAdd(t *testing.T) {
 	var ss = src.NewSecretSharing(5, 11)
-	sa := src.ActiveArithmetic{}
+	sa := src.SimpleArithmetic{}
 
 	input1 := ss.SecretGen(big.NewInt(4))
 	input2 := ss.SecretGen(big.NewInt(5))
 
-	src.Debug(1, "Secret 1: %v\n", input1)
-	src.Debug(1, "Secret 2: %v\n", input2)
+	src.Debug(1, "Share 1: %v\n", input1)
+	src.Debug(1, "Share 2: %v\n", input2)
 
 	// Add
 	for i, _ := range input1 {
@@ -34,13 +34,13 @@ func TestSecretSharingAdd(t *testing.T) {
 
 func TestSecretSharingMinus(t *testing.T) {
 	var ss = src.NewSecretSharing(5, 11)
-	sa := src.ActiveArithmetic{}
+	sa := src.SimpleArithmetic{}
 
 	input1 := ss.SecretGen(big.NewInt(4))
 	input2 := ss.SecretGen(big.NewInt(-3))
 
-	src.Debug(1, "Secret 1: %v\n", input1)
-	src.Debug(1, "Secret 2: %v\n", input2)
+	src.Debug(1, "Share 1: %v\n", input1)
+	src.Debug(1, "Share 2: %v\n", input2)
 
 	// Add
 	for i, _ := range input1 {
@@ -59,18 +59,18 @@ func TestSecretSharingMinus(t *testing.T) {
 
 func TestSecretSharingAddSequence(t *testing.T) {
 	var ss = src.NewSecretSharing(5, 11)
-	sa := src.ActiveArithmetic{}
+	sa := src.SimpleArithmetic{}
 
 	input1 := ss.SecretGen(big.NewInt(1))
 	input2 := ss.SecretGen(big.NewInt(2))
 	input3 := ss.SecretGen(big.NewInt(3))
 	input4 := ss.SecretGen(big.NewInt(4))
-	inputs := [][]framework.Secret{input1, input2, input3, input4}
+	inputs := [][]framework.Share{input1, input2, input3, input4}
 
-	src.Debug(1, "Secret 1: %v\n", input1)
-	src.Debug(1, "Secret 2: %v\n", input2)
-	src.Debug(1, "Secret 3: %v\n", input3)
-	src.Debug(1, "Secret 4: %v\n", input4)
+	src.Debug(1, "Share 1: %v\n", input1)
+	src.Debug(1, "Share 2: %v\n", input2)
+	src.Debug(1, "Share 3: %v\n", input3)
+	src.Debug(1, "Share 4: %v\n", input4)
 
 	// Add
 	result := ss.SecretGen(big.NewInt(0))
@@ -99,13 +99,13 @@ func TestSecretSharingAddSequence(t *testing.T) {
 
 func TestSecretSharingMult(t *testing.T) {
 	var ss = src.NewSecretSharing(5, 179)
-	sa := src.ActiveArithmetic{}
+	sa := src.SimpleArithmetic{}
 
 	input1 := ss.SecretGen(big.NewInt(2))
 	input2 := ss.SecretGen(big.NewInt(5))
 
-	src.Debug(1, "Secret 1: %v\n", input1)
-	src.Debug(1, "Secret 2: %v\n", input2)
+	src.Debug(1, "Share 1: %v\n", input1)
+	src.Debug(1, "Share 2: %v\n", input2)
 
 	// Multiply
 	for i, _ := range input1 {

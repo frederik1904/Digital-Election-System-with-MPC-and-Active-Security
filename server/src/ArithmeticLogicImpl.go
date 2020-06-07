@@ -1,64 +1,43 @@
 package src
 
 import (
-	f "../framework"
-	"fmt"
+	"../framework"
 	"math/big"
 )
 
-type ActiveArithmetic struct{
-	PrimeP  *big.Int
-	PrimeQ  *big.Int
+type SimpleArithmetic struct{
+	Prime *big.Int
 }
 
-func NewArithmetic(p, q *big.Int) *ActiveArithmetic {
-	return &ActiveArithmetic{
-		p,
-		q,
-	}
+func NewSimpleArithmetic(prime *big.Int) *SimpleArithmetic {
+	return &SimpleArithmetic{prime}
 }
 
-func (s *ActiveArithmetic) Add(a, b f.Share, aProof, bProof []big.Int) (f.Share, []big.Int) {
+func (s *SimpleArithmetic) Add(a, b framework.Share) framework.Share {
 	validate(a, b)
-	if bProof == nil {
-		return a, aProof
-	}
-
-	_s := new(big.Int).Mod(new(big.Int).Add(&a.S, &b.S), s.PrimeQ)
-	_t := new(big.Int).Mod(new(big.Int).Add(&a.T, &b.T), s.PrimeQ)
-	var proof []big.Int
-
-	for i, sp := range aProof {
-		mul := new(big.Int).Mul(&sp, &bProof[i])
-		mod := new(big.Int).Mod(mul, s.PrimeP)
-		proof = append(proof, *mod)
-	}
-
-
-	return f.NewShare(a.Point, a.Id, _s, _t), proof
+	tmp := big.NewInt(0).Add(a.PointValue, b.PointValue)
+	res := tmp.Mod(tmp, s.Prime)
+	return framework.NewSecret(a.Point, res, a.Id)
 }
 
-func (s *ActiveArithmetic) Multiply_f(a, b f.Share) f.Share {
+func (s *SimpleArithmetic) Multiply_f(a, b framework.Share) framework.Share {
 	validate(a, b)
-	panic("Not implemented")
+	return framework.NewSecret(a.Point, big.NewInt(0).Mod(big.NewInt(0).Mul(a.PointValue,b.PointValue),s.Prime), a.Id)
 }
 
-func (s *ActiveArithmetic) Multiply_const(share f.Share, a *big.Int, aProof []big.Int) (f.Share, []big.Int) {
-	_s := new(big.Int).Mod(new(big.Int).Mul(a, &share.S), s.PrimeQ)
-	_t := new(big.Int).Mod(new(big.Int).Mul(a, &share.T), s.PrimeQ)
-	proof := []big.Int{}
-	for _, p := range aProof {
-		proof = append(proof,*new(big.Int).Exp(&p, a, s.PrimeP))
-	}
-	return f.NewShare(share.Point, share.Id, _s, _t), proof
+func (s *SimpleArithmetic) Multiply_const(a framework.Share, i *big.Int) framework.Share {
+	a.PointValue = big.NewInt(0).Mod(big.NewInt(0).Mul(a.PointValue, i), s.Prime)
+	return framework.NewSecret(a.Point, a.PointValue, a.Id)
 }
 
-func validate(a, b f.Share) {
-	if a.Point != b.Point {
-		panic(fmt.Errorf("Different share points x(n); a(n): %d, b(n): %d ", a.Point, b.Point))
-	}
+func validate(a, b framework.Share) {
+	/*
+		if a.Point != b.Point {
+			panic(fmt.Errorf("Differing input x(n) a(n): %d, b(n): %d ", a.Point, b.Point))
+		}
+	*/
 }
 
-func (s *ActiveArithmetic) Comparison(a f.Share, b f.Share) f.Share {
+func (s *SimpleArithmetic) Comparison(a framework.Share, b framework.Share) framework.Share {
 	panic("implement me")
 }
