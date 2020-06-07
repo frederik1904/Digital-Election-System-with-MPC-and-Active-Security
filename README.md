@@ -1,6 +1,6 @@
 # Digital-Election-System-with-MPC-and-Active-Security
 
-## Authors:
+## Authors
 **Benjamin Zachariae\
 Frederik Jacobsen\
 Magnus Jensen**
@@ -10,7 +10,7 @@ This project was made for our bachelor degree at Aarhus university.
 The project contains the Golang code for making a digital online election with privacy and integrity of the result.
 
 
-## How to run:
+## How to run
 To run the code you need to have Golang installed (https://golang.org/doc/install). When this is installed you can either run make to install all neded plugins, and then run the code. You can also install the needed libaries yourself (the needed libaries can be found in the make file) and run the code with "go run main.go". 
 
 For the algorithms to work, there is a need of at least 3 servers, and if it is run locally the debug value can be set to 1 or above to make it automatically use the local ip-address 127.0.0.1:8080.
