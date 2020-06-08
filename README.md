@@ -9,6 +9,7 @@ Magnus Jensen**
 This project was made for our bachelor degree at Aarhus university. 
 The project contains the Golang code for making a digital online election with privacy and integrity of the result.
 
+The paper can be found at https://drive.google.com/file/d/10-dY0R4sW01cv1YIO7fAaZVQudVvmcY4/view?usp=sharing
 
 ## How to run
 To run the code you need to have Golang installed (https://golang.org/doc/install). When this is installed you can either run make to install all neded plugins, and then run the code. You can also install the needed libaries yourself (the needed libaries can be found in the make file) and run the code with "go run main.go". 
